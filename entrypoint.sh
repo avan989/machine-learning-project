@@ -1,6 +1,6 @@
 #!/bin/sh
 
 echo "Starting Scripts"
-python scrapping_amazon.py
+python making_classifier.py
 
 exec "$@"
