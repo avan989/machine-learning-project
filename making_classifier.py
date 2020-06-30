@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import nltk
 import tensorflow_hub as hub #text encoding
+import sklearn
 
+from sklearn import preprocessing
 from tensorflow import keras
 from keras.datasets import imdb
 from keras.preprocessing import sequence 
@@ -112,9 +114,8 @@ def encode_text(text):
     tokens = [word_index[word] if word in word_index else 0 for word in tokens] # convert each words into index 
     return sequence.pad_sequences([tokens], MAXLEN)[0] # pad to the same length (10 for now)    
        
-      
-# multivariant linear regression: y = m1 * x1 + m2 * x2 + m3 *x3 + .... + b 
-def multivariant_linear_regression():
+
+def make_model():
 
     vocab_size = 88584
     embedding_dim = 16
@@ -124,11 +125,11 @@ def multivariant_linear_regression():
     oov_tok = "<OOV>"
 
     data = get_training("total_product_info.csv")
-    training_feature = data[0][:3500]
-    training_label = 1/np.array(data[1][:3500]) 
+    training_feature = data[0][:5000]
+    training_label = np.array(data[1][:5000]) 
   
-    test_feature = data[0][3500::]
-    test_label = 1/np.array(data[1][3500::])
+    test_feature = data[0][5000::]
+    test_label = np.array(data[1][5000::])
     
     # tokenizer
     # tokenizer = Tokenizer(num_words = vocab_size, oov_token=oov_tok)
@@ -141,8 +142,8 @@ def multivariant_linear_regression():
     # test_sequences = tokenizer.texts_to_sequences(test_feature)
     # testing_padded = pad_sequences(test_sequences, maxlen = max_length, padding=padding_type, truncating=trunc_type)
 
-    padded_training = 1/np.array([encode_text(text) for text in training_feature])
-    padded_test = 1/np.array([encode_text(text) for text in test_feature])
+    padded_training = np.array([encode_text(text) for text in training_feature])
+    padded_test = np.array([encode_text(text) for text in test_feature])
 
     #create model 
 
@@ -155,9 +156,9 @@ def multivariant_linear_regression():
     ])
     
     callback = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=2)
-    model.compile(loss='mean_squared_error',optimizer='adam')
+    model.compile(loss=tf.keras.losses.MeanSquaredLogarithmicError(),optimizer='adam')
         
-    num_epochs = 500
+    num_epochs = 5000
     model.fit(padded_training, training_label, epochs=num_epochs, validation_data=(padded_test, test_label), callbacks=[callback], verbose=1)
     
     
@@ -168,7 +169,7 @@ def multivariant_linear_regression():
     fake_predict = model.predict(predict_value)
     print(fake_predict[0][0])
 
-    model.save('my_model.h5')
+    model.save('model_1_regression.h5')
     
     
 # load model     
@@ -200,20 +201,109 @@ def train_additional_items(file_name, split):
     num_epochs = 1000
     model.fit(padded_training, training_label, epochs=num_epochs, validation_data=(padded_test, test_label), callbacks=[callback], verbose=1)
     
-    model.save('my_model.h5')
-    
+    model.save('model_1_regression.h5')
 
+#######################################    
+# Creating Classifier - 2nd model
+#######################################
+
+# clearning up data and preprocessing
+def cleaning_data_for_classifier(file_name):
+    
+    print("cleaning data for classifier")
+    feature_final = []
+    label_final =[]
+    
+    data = pd.read_csv(file_name, sep=',', header=0)
+    del data['keywords']
+    
+    data = np.array(data)
+    feature_init = data[:, :13]
+    
+    for row_num, rows in enumerate(feature_init):
+        count = 0
+        for index, value in enumerate(rows):
+            
+            if index != 12:
+                if value > 50000:
+                    continue
+                else:
+                    count += 1
+            else:
+                if value > 100:
+                    filter_feature_compeition = 0
+                else:
+                    filter_feature_compeition = 1
+        
+        feature_final.append([count, filter_feature_compeition])
+                    
+         
+    # create label
+    for index, row in enumerate(feature_final):
+        if row[0] >= 3 and row[1] == 1: # if the number of compeition has 3 or more with ranking of 50K and above, and competition is less than 100
+            label = 1
+        else: # all other condition label = 0
+            label = 0
+        
+        label_final.append([label])
+        
+    
+    # normalize feature_final so first column is 0 - 1, highest possible value is 12
+    for row in feature_final:
+        row[0] = row[0]/12
+                    
+    return [feature_final, label_final]
+                       
+
+
+def creating_classifier():
+
+    split = 300
+    # get training data
+    data = cleaning_data_for_classifier('./data/data_for_classifier.csv')
+    
+    feature_training = np.array(data[0])[:split, :]
+    label_training = np.array(data[1])[:split, :]
+    
+    feature_test = np.array(data[0])[split:, :]
+    label_test = np.array(data[1])[split:, :]
+    
+    # build model
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(64, input_dim=2),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dense(1, activation='sigmoid')
+    ])
+    
+    callback = tf.keras.callbacks.EarlyStopping(monitor='accuracy', patience=3)
+    model.compile(loss='binary_crossentropy',optimizer='adam', metrics=['accuracy'])
+
+    model.fit(feature_training, label_training, epochs=1000, validation_data=(feature_test, label_test), callbacks=[callback], verbose=1)
+     
+    model.save('model_2_classification.h5')
+    
+    
+    test_predict1 =  cleaning_data_for_classifier('./data/evaluation_2nd_model_classifier.csv')[0]
+    print(test_predict1)
+    print(model.predict(test_predict1))
+    
+    
+    
 if __name__ == '__main__':
     print(tf.__version__)
     
-    load_model("College Vegetarian Cookbook: Quick Plant-Based Recipes Every College Student Will Love. Delicious and Healthy Meals for Busy People on a Budget (Vegetarian Cookbook)")
-    load_model("Keto Meal Prep Cookbook For Beginners: 600 Easy, Simple & Basic Ketogenic Diet Recipes (Keto Cookbook)")
-    load_model("This is a test")
-    load_model("dfasdf dsfaf dfsasd dsfadsf dfsadf dfadsf ddgfgdf hghf 4546 213546 215464 21654621 546546sdfa ")
-    load_model("Peanutbutter cheesecake for children lunch dinner breakfast")
-    load_model("vegetarian food for college students")
+    # load_model("College Vegetarian Cookbook Quick Plant-Based Recipes Every College Student Will Love. Delicious and Healthy Meals for Busy People on a Budget (Vegetarian Cookbook)")
+    # load_model("Keto Meal Prep Cookbook For Beginners: 600 Easy, Simple & Basic Ketogenic Diet Recipes (Keto Cookbook)")
+    # load_model("Jello Salads 250: Enjoy 250 Days With Amazing Jello Salad Recipes In Your Own Jello Salad Cookbook! [Green Salad Recipes, Asian Salad Cookbook, Best Potato Salad Recipe] [Book 1]")
+    # load_model("This is a test")
+    # load_model("dfasdf dsfaf dfsasd dsfadsf dfsadf dfadsf ddgfgdf hghf 4546 213546 215464 21654621 546546sdfa ")
+    # load_model("Peanutbutter cheesecake for children lunch dinner breakfast")
+    # load_model("vegetarian food for college students")
 
-    #train_additional_items('total_product_info.csv', 3500)
-    #multivariant_linear_regression()
+    #train_additional_items('total_product_info.csv', 3000)
+    #make_model()
+    
+    # Create 2 model
+    creating_classifier()
 
     print("Testing Script for making classifier")
